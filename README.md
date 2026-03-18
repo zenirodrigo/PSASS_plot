@@ -20,7 +20,7 @@ and produces:
 
 This script improves visualization of genomic regions with:
 
-* copy number variation signals
+* fixation index
 * depth ratio shifts
 * SNP-density variation
 
