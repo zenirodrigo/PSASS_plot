@@ -29,6 +29,12 @@ This script improves visualization of genomic regions with:
 
 ## Installation
 
+Clone the repository
+```bash
+git clone https://github.com/zenirodrigo/PSASS_plot.git
+cd PSASS_plot
+```
+
 This script requires **R** and the following packages:
 
 - `sgtr`
