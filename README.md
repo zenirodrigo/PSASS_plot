@@ -5,11 +5,11 @@
 ![Output](https://img.shields.io/badge/output-PNG-success)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-A script  for **PSASS** visualization (https://github.com/SexGenomicsToolkit/PSASS), generating:
+A script  for **PSASS** visualization (https://github.com/SexGenomicsToolkit/PSASS)
 
 ## Overview
 
-`PSASS_plot` takes the  PSASS output file:
+`PSASS_plot` use the  PSASS output file:
 
 `psass_window.tsv`
 
