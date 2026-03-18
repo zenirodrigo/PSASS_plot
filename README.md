@@ -55,7 +55,7 @@ A simple way to run the script is to create a dedicated Conda environment.
 ### 1. Create the environment
 
 ```bash
-conda create -n psass_plot_env -c conda-forge r-base=4.3 r-ggplot2 r-dplyr r-tidyr r-scales r-png r-patchwork r-sgtr
+conda create -n psass_plot_env -c conda-forge r-base=4.3 r-ggplot2 r-dplyr r-tidyr r-scales r-png r-patchwork -c bioconda r-sgtr
 conda activate psass_plot_env
 ```
 
