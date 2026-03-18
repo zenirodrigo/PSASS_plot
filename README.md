@@ -9,7 +9,7 @@ A script  for **PSASS** visualization (https://github.com/SexGenomicsToolkit/PSA
 
 ## Overview
 
-`PSASS_plot` takes the standard PSASS output file:
+`PSASS_plot` takes the  PSASS output file:
 
 `psass_window.tsv`
 
