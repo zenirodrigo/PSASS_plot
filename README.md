@@ -5,11 +5,11 @@
 ![Output](https://img.shields.io/badge/output-PNG-success)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-A script  for **PSASS** visualization (https://github.com/SexGenomicsToolkit/PSASS)
+A script for visualization of **PSASS** results (https://github.com/SexGenomicsToolkit/PSASS)
 
 ## Overview
 
-`PSASS_plot` use the  PSASS output file:
+`PSASS_plot` uses the PSASS output file:
 
 `psass_window.tsv`
 
@@ -18,9 +18,9 @@ and produces:
 1. Multi-panel Manhattan plot
 2. Circos plot
 
-This script improves visualization of genomic regions with:
+This script improves the visualization of genomic regions with:
 
-* fixation index
+* fixation index (Fst)
 * depth ratio shifts
 * SNP-density variation
 
@@ -50,7 +50,7 @@ This script requires **R** and the following packages:
 
 ## Conda Environment
 
-A simple way to run the script is to create a dedicated Conda environment.
+A simple way to run the script is by creating a dedicated Conda environment.
 
 ### 1. Create the environment
 
@@ -66,13 +66,13 @@ Required file:
 
 `psass_window.tsv`
 
-The file must be a tab-separated table generated from PSASS window analyses.
+The file must be a tab-separated table generated from PSASS window analyses. No further formatting is needed if it was created from the PSASS original pipeline.
 
 ---
 
 ## Usage
 
-This script must be executed inside the PSASS analysis directory output containing the  file:
+This script must be executed inside the PSASS analysis output directory containing the file:
 
 `psass_window.tsv`
 
