@@ -25,7 +25,7 @@ require_file <- function(fname) {
   if (!file.exists(fname)) {
     die(paste0(
       "This folder must contain the file '", fname, "'.\n",
-      "Please run this script inside the PSASS analyze folder (e.g., .../03_analyze/50k/)."
+      "Please run this script inside the PSASS analyze folder."
     ))
   }
 }
