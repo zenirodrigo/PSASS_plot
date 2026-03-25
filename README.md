@@ -73,21 +73,42 @@ The file must be a tab-separated table generated from PSASS window analyses. No 
 ## Usage
 
 This script must be executed inside the PSASS analysis output directory containing the file:
+Parameters:
 
-`psass_window.tsv`
+--n
 
-Examples:
+Plots only the first N sequences/contigs from the ordered dataset.
 
-`Rscript run_psass_plot_auto.R --n 25`
+Rscript run_psass_plot_auto.R --n 25
 
-`Rscript run_psass_plot_auto.R`
+Example: use only the first 25 sequences for plotting.
 
-Behavior:
+--chr
 
-- if `--n` is provided, the script keeps only the first `n` ordered contigs
-- if `--n` is omitted, the script uses all available contigs
+Plots only the sequence/contig at index X in the ordered TSV.
 
+Rscript run_psass_plot_auto.R --chr 11
 
+Example: if --chr 11 is used, the script will plot only the 11th sequence in the dataset order.
+
+--region
+
+Must be used together with --chr.
+Plots only a specific genomic region of the selected sequence.
+
+Rscript run_psass_plot_auto.R --chr 11 --region 1:100000
+
+Example: plot only positions 1 to 100000 from the 11th sequence.
+
+Behavior summary
+No arguments → plot all sequences normally
+--n X → plot only the first X sequences
+--chr X → plot only sequence X
+--chr X --region A:B → plot only region A:B from sequence X
+Important notes
+--chr uses the numeric order of sequences in the TSV, not the chromosome name.
+--region only works together with --chr.
+--n and --chr should not be used together
 
 ## Outputs
 
@@ -118,25 +139,7 @@ Filtered table containing only the selected contigs.
 chromosomes.tsv
 Contig-to-label mapping file used for Circos plotting.
 
-Final output figures
 
-The final figure names depend on the detected folder name:
-
-HAP1_PSASS_manhattan_FST_SNPf_SNPm_pastelAlt.png
-
-HAP1_PSASS_circos_FST_SNPf_SNPm_pastelAlt.png
-
-or
-
-HAP2_PSASS_manhattan_FST_SNPf_SNPm_pastelAlt.png
-
-HAP2_PSASS_circos_FST_SNPf_SNPm_pastelAlt.png
-
-or, if no haplotype-specific pattern is detected in the folder path:
-
-PSASS_manhattan_FST_SNPf_SNPm_pastelAlt.png
-
-PSASS_circos_FST_SNPf_SNPm_pastelAlt.png
 
 
 Both figures are exported as PNG files.
