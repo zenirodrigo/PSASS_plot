@@ -74,30 +74,31 @@ The file must be a tab-separated table generated from PSASS window analyses. No 
 
 This script must be executed inside the PSASS analysis output directory containing the file:
 Parameters:
-
+```bash
 --n
-
+```
 Plots only the first N sequences/contigs from the ordered dataset.
 
+```bash
 Rscript run_psass_plot_auto.R --n 25
-
+```
 Example: use only the first 25 sequences for plotting.
-
+```bash
 --chr
-
+```
 Plots only the sequence/contig at index X in the ordered TSV.
-
+```bash
 Rscript run_psass_plot_auto.R --chr 11
-
+```
 Example: if --chr 11 is used, the script will plot only the 11th sequence in the dataset order.
-
+```bash
 --region
-
+```
 Must be used together with --chr.
 Plots only a specific genomic region of the selected sequence.
-
+```bash
 Rscript run_psass_plot_auto.R --chr 11 --region 1:100000
-
+```
 Example: plot only positions 1 to 100000 from the 11th sequence.
 
 Behavior summary
