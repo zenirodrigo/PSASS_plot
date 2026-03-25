@@ -99,8 +99,15 @@ Plots only a specific genomic region of the selected sequence.
 ```bash
 Rscript run_psass_plot_auto.R --chr 11 --region 1:100000
 ```
-Example: plot only positions 1 to 100000 from the 11th sequence.
 
+Example: plot only positions 1 to 100000 from the 11th sequence.
+```bash
+--p
+```
+Enables filled area under the curves in the Manhattan plots.
+```bash
+Rscript run_psass_plot_auto.R --p
+```
 Behavior summary
 No arguments → plot all sequences normally
 --n X → plot only the first X sequences
