@@ -30,7 +30,6 @@ require_file <- function(fname) {
   }
 }
 
-# Parse CLI args: --n 25
 get_arg_value <- function(flag) {
   args <- commandArgs(trailingOnly = TRUE)
   if (length(args) == 0) return(NA_character_)
@@ -50,7 +49,35 @@ parse_n_from_cli <- function() {
   n
 }
 
-# Read a table that may be tab-separated OR whitespace-separated
+parse_chr_from_cli <- function() {
+  v <- get_arg_value("--chr")
+  if (is.na(v)) return(NA_integer_)
+  n <- suppressWarnings(as.integer(v))
+  if (is.na(n) || n < 1) {
+    die("Invalid value for --chr. Use a positive integer, e.g. --chr 11")
+  }
+  n
+}
+
+parse_region_from_cli <- function() {
+  v <- get_arg_value("--region")
+  if (is.na(v)) return(NULL)
+
+  if (!grepl("^[0-9]+:[0-9]+$", v)) {
+    die("Invalid value for --region. Use start:end, e.g. --region 1:100000")
+  }
+
+  parts <- strsplit(v, ":", fixed = TRUE)[[1]]
+  start <- suppressWarnings(as.numeric(parts[1]))
+  end   <- suppressWarnings(as.numeric(parts[2]))
+
+  if (is.na(start) || is.na(end) || start < 1 || end < 1 || end < start) {
+    die("Invalid region coordinates. Use positive integers with end >= start, e.g. --region 1:100000")
+  }
+
+  list(start = start, end = end, raw = v)
+}
+
 read_flexible <- function(path) {
   df <- tryCatch(
     read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
@@ -67,7 +94,6 @@ read_flexible <- function(path) {
   die(paste0("Could not parse input file: ", path, " (neither tab nor whitespace separated)."))
 }
 
-# Remove duplicated header line if present
 fix_psass_window <- function(infile, outfile) {
   lines <- readLines(infile, warn = FALSE)
   if (length(lines) < 2) die(paste0("Input looks empty: ", infile))
@@ -83,7 +109,6 @@ fix_psass_window <- function(infile, outfile) {
   info(paste0("Wrote cleaned window file: ", outfile))
 }
 
-# Detect prefix for outputs based on folder path
 detect_prefix <- function() {
   wd <- normalizePath(getwd(), winslash = "/", mustWork = TRUE)
   if (grepl("psass_hap1", wd, ignore.case = TRUE)) return("HAP1_PSASS")
@@ -91,7 +116,6 @@ detect_prefix <- function() {
   return("PSASS")
 }
 
-# Order contigs in an "obvious" way
 order_contigs_obvious <- function(contig_sizes_df) {
   contigs <- contig_sizes_df$Contig
 
@@ -109,7 +133,6 @@ order_contigs_obvious <- function(contig_sizes_df) {
   contig_sizes_df$Contig
 }
 
-# Write chromosomes.tsv mapping Contig -> Label
 write_chromosomes_tsv <- function(contigs_ordered, outfile) {
   labels <- contigs_ordered
   labels <- sub("^Chromosome", "Chr", labels)
@@ -118,6 +141,12 @@ write_chromosomes_tsv <- function(contigs_ordered, outfile) {
   out <- data.frame(Contig = contigs_ordered, Label = labels, stringsAsFactors = FALSE)
   write.table(out, outfile, sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
   info(paste0("Wrote chromosomes mapping file: ", outfile))
+}
+
+sanitize_for_filename <- function(x) {
+  x <- gsub(":", "_", x)
+  x <- gsub("[^A-Za-z0-9_\\-]", "_", x)
+  x
 }
 
 # -----------------------------
@@ -132,7 +161,6 @@ add_circos_center_legend_png <- function(input_png, output_png) {
   grid::grid.newpage()
   grid::grid.raster(img, x = 0.5, y = 0.5, width = 1, height = 1)
 
-  # caixa central
   box_w <- 0.22
   box_h <- 0.16
   box_x <- 0.50
@@ -180,7 +208,7 @@ add_circos_center_legend_png <- function(input_png, output_png) {
 # -----------------------------
 # Manhattan helpers
 # -----------------------------
-build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst_raw_max, fst_gt1_n, prefix) {
+build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst_raw_max, fst_gt1_n, prefix, subtitle_extra = NULL) {
   df_plot <- df_filtered %>%
     mutate(
       Position_Mbp = Position / 1e6,
@@ -457,14 +485,20 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
   p_fst    <- create_fst_plot(df_plot, y_max_fst)
   p_depth  <- create_depth_ratio_plot(df_plot, y_max_depth_ratio)
 
+  subtitle_text <- paste(
+    "Scaffolds:", length(keep_contigs),
+    "| Same Y scale for SNPs (max:", round(shared_snps_max, 0), ")"
+  )
+
+  if (!is.null(subtitle_extra) && nzchar(subtitle_extra)) {
+    subtitle_text <- paste(subtitle_text, "|", subtitle_extra)
+  }
+
   combined_plot <- p_male / p_female / p_fst / p_depth +
     plot_layout(heights = c(1, 1, 1.2, 1.1)) +
     plot_annotation(
       title = "PSASS Analysis: SNP counts, Fst distribution and depth ratio",
-      subtitle = paste(
-        "Scaffolds:", length(keep_contigs),
-        "| Same Y scale for SNPs (max:", round(shared_snps_max, 0), ")"
-      ),
+      subtitle = subtitle_text,
       theme = theme(
         plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
         plot.subtitle = element_text(hjust = 0.5, size = 12)
@@ -495,15 +529,31 @@ FILTERED_WIN <- "psass_window.filtered.tsv"
 CHR_TSV      <- "chromosomes.tsv"
 SELECTED_TXT <- "selected_contigs.txt"
 
-REQUESTED_N <- parse_n_from_cli()
+REQUESTED_N      <- parse_n_from_cli()
+REQUESTED_CHR    <- parse_chr_from_cli()
+REQUESTED_REGION <- parse_region_from_cli()
 
 info("------------------------------------------------------------")
 info("PSASS plotting helper")
 info("Input required in this folder: psass_window.tsv")
 info("Usage examples:")
 info("  Rscript run_psass_plot_auto.R --n 25")
-info("  Rscript run_psass_plot_auto.R            (uses ALL contigs)")
+info("  Rscript run_psass_plot_auto.R --chr 11")
+info("  Rscript run_psass_plot_auto.R --chr 11 --region 1:100000")
+info("  Rscript run_psass_plot_auto.R")
 info("------------------------------------------------------------")
+
+if (!is.na(REQUESTED_N) && !is.na(REQUESTED_CHR)) {
+  die("Use either --n OR --chr, not both together.")
+}
+
+if (is.null(REQUESTED_CHR) || length(REQUESTED_CHR) == 0) {
+  # nothing
+}
+
+if (!is.null(REQUESTED_REGION) && is.na(REQUESTED_CHR)) {
+  die("The option --region requires --chr. Example: --chr 11 --region 1:100000")
+}
 
 require_file(REQ_WINDOW)
 
@@ -522,7 +572,6 @@ if (length(missing) > 0) {
   ))
 }
 
-# numeric coercion
 df$Position      <- suppressWarnings(as.numeric(df$Position))
 df$Fst           <- suppressWarnings(as.numeric(df$Fst))
 df$Snps_females  <- suppressWarnings(as.numeric(df$Snps_females))
@@ -534,20 +583,58 @@ contig_sizes <- aggregate(Length ~ Contig, data = df, FUN = max)
 ordered_contigs <- order_contigs_obvious(contig_sizes)
 max_n <- length(ordered_contigs)
 
-if (is.na(REQUESTED_N)) {
-  n_keep <- max_n
-  info(paste0("No --n provided. Keeping ALL contigs for analysis (", max_n, ")."))
-  info("Tip: if your assembly is fragmented (many scaffolds), use e.g. --n 25 or --n 50 to avoid Circos errors.")
-} else {
+selected_mode <- "all"
+region_tag <- NULL
+subtitle_extra <- NULL
+
+if (!is.na(REQUESTED_CHR)) {
+  if (REQUESTED_CHR > max_n) {
+    die(paste0(
+      "Invalid value for --chr: ", REQUESTED_CHR,
+      ". There are only ", max_n, " sequences/contigs available."
+    ))
+  }
+
+  selected_contig <- ordered_contigs[REQUESTED_CHR]
+  keep_contigs <- selected_contig
+  selected_mode <- "single_chr"
+
+  info(paste0(
+    "Using only sequence index ", REQUESTED_CHR,
+    " -> contig: ", selected_contig
+  ))
+
+  if (!is.null(REQUESTED_REGION)) {
+    region_tag <- sanitize_for_filename(paste0("region_", REQUESTED_REGION$raw))
+    subtitle_extra <- paste0(
+      "Contig index: ", REQUESTED_CHR,
+      " (", selected_contig, ")",
+      " | Region: ", REQUESTED_REGION$start, "-", REQUESTED_REGION$end
+    )
+  } else {
+    subtitle_extra <- paste0(
+      "Contig index: ", REQUESTED_CHR,
+      " (", selected_contig, ")"
+    )
+  }
+
+} else if (!is.na(REQUESTED_N)) {
   n_keep <- min(REQUESTED_N, max_n)
   if (REQUESTED_N > max_n) {
     info(paste0("You requested ", REQUESTED_N, " contigs, but only ", max_n, " are available. Using ALL (", max_n, ")."))
   } else {
     info(paste0("Keeping the first ", n_keep, " contigs for analysis."))
   }
-}
+  keep_contigs <- head(ordered_contigs, n_keep)
+  selected_mode <- "top_n"
+  subtitle_extra <- paste0("Top contigs used: ", length(keep_contigs))
 
-keep_contigs <- head(ordered_contigs, n_keep)
+} else {
+  keep_contigs <- ordered_contigs
+  info(paste0("No --n or --chr provided. Keeping ALL contigs for analysis (", max_n, ")."))
+  info("Tip: if your assembly is fragmented (many scaffolds), use e.g. --n 25 or --n 50 to avoid Circos errors.")
+  subtitle_extra <- paste0("All contigs used: ", length(keep_contigs))
+}
 
 writeLines(keep_contigs, SELECTED_TXT)
 info(paste0("Wrote selected contigs list: ", SELECTED_TXT))
@@ -558,20 +645,41 @@ if (nrow(df_filt) == 0) {
   die("After filtering contigs, no rows remained in the dataset.")
 }
 
-# Fst do circos truncado entre 0 e 1 para evitar picos estranhos e saídas do cromossomo
-df_filt$Fst_circos <- pmax(pmin(df_filt$Fst, 1), 0)
+if (!is.null(REQUESTED_REGION)) {
+  chosen_contig <- keep_contigs[1]
 
-# Depth ratio truncado para visualização
+  df_filt <- df_filt[
+    df_filt$Contig == chosen_contig &
+      df_filt$Position >= REQUESTED_REGION$start &
+      df_filt$Position <= REQUESTED_REGION$end,
+  ]
+
+  if (nrow(df_filt) == 0) {
+    die(paste0(
+      "No rows remained after applying region filter ",
+      REQUESTED_REGION$start, ":", REQUESTED_REGION$end,
+      " on contig ", chosen_contig
+    ))
+  }
+
+  info(paste0(
+    "Applied region filter on ", chosen_contig,
+    ": ", REQUESTED_REGION$start, "-", REQUESTED_REGION$end
+  ))
+
+  # Ajusta Length para o tamanho da região, o que ajuda no layout do circos/labels
+  region_length <- REQUESTED_REGION$end - REQUESTED_REGION$start + 1
+  df_filt$Length <- region_length
+}
+
+df_filt$Fst_circos <- pmax(pmin(df_filt$Fst, 1), 0)
 df_filt$Depth_ratio_circos <- pmin(df_filt$Depth_ratio, 5)
 
 write.table(df_filt, FILTERED_WIN, sep = "\t", row.names = FALSE, quote = FALSE)
 info(paste0("Wrote filtered window file: ", FILTERED_WIN))
 
-write_chromosomes_tsv(keep_contigs, CHR_TSV)
+write_chromosomes_tsv(unique(df_filt$Contig), CHR_TSV)
 
-# -----------------------------
-# Scales
-# -----------------------------
 shared_snps_max <- max(c(df_filt$Snps_females, df_filt$Snps_males), na.rm = TRUE)
 
 if (!is.finite(shared_snps_max) || is.na(shared_snps_max) || shared_snps_max <= 0) {
@@ -586,14 +694,10 @@ info(paste0("Raw Fst max in file: ", fst_raw_max))
 info(paste0("Windows with Fst > 1: ", fst_gt1_n))
 info("Depth_ratio display max: 5")
 
-# Circos
 fst_ylim_circos   <- c(0, 1)
 snps_ylim_circos  <- c(0, shared_snps_max)
 depth_ylim_circos <- c(0, 5)
 
-# -----------------------------
-# Colors
-# -----------------------------
 COL_GREEN_DARK   <- "#7FC89A"
 COL_GREEN_LIGHT  <- "#BFE6C9"
 
@@ -606,24 +710,25 @@ COL_BLUE_LIGHT   <- "#B7D7F5"
 COL_PURPLE_DARK  <- "#9D4EDD"
 COL_PURPLE_LIGHT <- "#CDB4DB"
 
-prefix <- detect_prefix()
+prefix_base <- detect_prefix()
 
-# -----------------------------
-# Manhattan
-# -----------------------------
+if (!is.na(REQUESTED_CHR)) {
+  prefix_base <- paste0(prefix_base, "_chr", REQUESTED_CHR)
+}
+if (!is.null(region_tag)) {
+  prefix_base <- paste0(prefix_base, "_", region_tag)
+}
+
 build_manhattan_plot(
   df_filtered = df_filt,
-  keep_contigs = keep_contigs,
+  keep_contigs = unique(df_filt$Contig),
   shared_snps_max = shared_snps_max,
   fst_raw_max = fst_raw_max,
   fst_gt1_n = fst_gt1_n,
-  prefix = prefix
+  prefix = prefix_base,
+  subtitle_extra = subtitle_extra
 )
 
-# -----------------------------
-# Circos tracks
-# sem labels para evitar sobreposição superior do sgtr
-# -----------------------------
 tracks_circos <- list(
   single_metric_track(
     "Fst_circos",
@@ -657,10 +762,9 @@ tracks_circos <- list(
 
 info("Generating Circos plot with sgtr ...")
 
-circos_tmp_png <- paste0(prefix, "_circos_FST_SNPf_SNPm_pastelAlt.tmp.png")
-circos_out_png <- paste0(prefix, "_circos_FST_SNPf_SNPm_pastelAlt.png")
+circos_tmp_png <- paste0(prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.tmp.png")
+circos_out_png <- paste0(prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.png")
 
-# PNG com legenda central manual
 plot_circos(
   FILTERED_WIN,
   tracks = tracks_circos,
@@ -676,5 +780,5 @@ if (file.exists(circos_tmp_png)) {
 
 info("DONE.")
 info("Outputs:")
-info(paste0("  - ", prefix, "_manhattan_FST_SNPf_SNPm_pastelAlt.png"))
-info(paste0("  - ", prefix, "_circos_FST_SNPf_SNPm_pastelAlt.png"))
+info(paste0("  - ", prefix_base, "_manhattan_FST_SNPf_SNPm_pastelAlt.png"))
+info(paste0("  - ", prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.png"))
