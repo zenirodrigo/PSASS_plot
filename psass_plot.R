@@ -78,6 +78,11 @@ parse_region_from_cli <- function() {
   list(start = start, end = end, raw = v)
 }
 
+parse_p_from_cli <- function() {
+  args <- commandArgs(trailingOnly = TRUE)
+  "--p" %in% args
+}
+
 read_flexible <- function(path) {
   df <- tryCatch(
     read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
@@ -150,6 +155,58 @@ sanitize_for_filename <- function(x) {
 }
 
 # -----------------------------
+# X-axis helper for --chr / --chr --region
+# -----------------------------
+build_single_chr_x_axis <- function(region_info = NULL, chromosome_length_bp = NULL) {
+
+  if (!is.null(region_info)) {
+    span_bp <- region_info$end - region_info$start
+
+    if (span_bp < 1e6) {
+      unit_bp <- 1e3
+      unit_label <- "kb"
+    } else {
+      unit_bp <- 1e6
+      unit_label <- "Mb"
+    }
+
+    major_step_bp <- 5 * unit_bp
+    minor_step_bp <- 1 * unit_bp
+
+    axis_start_bp <- floor(region_info$start / major_step_bp) * major_step_bp
+    axis_end_bp   <- ceiling(region_info$end / major_step_bp) * major_step_bp
+
+  } else {
+    if (is.null(chromosome_length_bp) || !is.finite(chromosome_length_bp) || chromosome_length_bp <= 0) {
+      die("Could not determine chromosome length for single-chromosome Manhattan axis.")
+    }
+
+    unit_bp <- 1e6
+    unit_label <- "Mb"
+    major_step_bp <- 5 * unit_bp
+    minor_step_bp <- 1 * unit_bp
+
+    axis_start_bp <- 0
+    axis_end_bp   <- ceiling(chromosome_length_bp / major_step_bp) * major_step_bp
+  }
+
+  breaks_bp <- seq(axis_start_bp, axis_end_bp, by = minor_step_bp)
+  labels <- ifelse((breaks_bp %% major_step_bp) == 0,
+                   format(round(breaks_bp / unit_bp), trim = TRUE, scientific = FALSE),
+                   "")
+
+  list(
+    unit_bp = unit_bp,
+    unit_label = unit_label,
+    axis_start_bp = axis_start_bp,
+    axis_end_bp = axis_end_bp,
+    breaks_scaled = breaks_bp / unit_bp,
+    labels = labels,
+    limits_scaled = c(axis_start_bp, axis_end_bp) / unit_bp
+  )
+}
+
+# -----------------------------
 # Add center legend to circos PNG
 # -----------------------------
 add_circos_center_legend_png <- function(input_png, output_png) {
@@ -206,9 +263,35 @@ add_circos_center_legend_png <- function(input_png, output_png) {
 }
 
 # -----------------------------
+# Convert PNG to PDF
+# -----------------------------
+png_to_pdf <- function(input_png, output_pdf) {
+  img <- png::readPNG(input_png)
+  h <- dim(img)[1]
+  w <- dim(img)[2]
+
+  grDevices::pdf(output_pdf, width = w / 150, height = h / 150, useDingbats = FALSE)
+  grid::grid.newpage()
+  grid::grid.raster(img, x = 0.5, y = 0.5, width = 1, height = 1)
+  grDevices::dev.off()
+
+  info(paste0("Wrote PDF version: ", output_pdf))
+}
+
+# -----------------------------
 # Manhattan helpers
 # -----------------------------
-build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst_raw_max, fst_gt1_n, prefix, subtitle_extra = NULL) {
+build_manhattan_plot <- function(df_filtered,
+                                 keep_contigs,
+                                 shared_snps_max,
+                                 fst_raw_max,
+                                 fst_gt1_n,
+                                 prefix,
+                                 subtitle_extra = NULL,
+                                 single_chr_axis = FALSE,
+                                 region_info = NULL,
+                                 fill_under_points = FALSE) {
+
   df_plot <- df_filtered %>%
     mutate(
       Position_Mbp = Position / 1e6,
@@ -218,8 +301,8 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
   chrom_lengths <- df_plot %>%
     group_by(Chromosome = Contig) %>%
     summarise(
-      Length_bp = max(Position, na.rm = TRUE),
-      Length_Mbp = max(Position, na.rm = TRUE) / 1e6,
+      Length_bp = max(Length, na.rm = TRUE),
+      Length_Mbp = max(Length, na.rm = TRUE) / 1e6,
       .groups = "drop"
     ) %>%
     arrange(factor(Chromosome, levels = keep_contigs)) %>%
@@ -238,7 +321,8 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
     ) %>%
     mutate(
       Cumulative_position_Mbp = Cumulative_start_Mbp + Position_Mbp
-    )
+    ) %>%
+    arrange(Contig, Position)
 
   y_max_snps <- shared_snps_max * 1.05
   y_max_fst  <- min(fst_raw_max * 1.05, 1)
@@ -252,32 +336,106 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
   info(paste0("  Manhattan Fst display max: ", round(y_max_fst, 4)))
   info("  Manhattan Depth_ratio display max: 5")
 
+  x_scale_single <- NULL
+  if (single_chr_axis) {
+    chr_len_bp <- max(df_plot$Length, na.rm = TRUE)
+
+    x_scale_single <- build_single_chr_x_axis(
+      region_info = region_info,
+      chromosome_length_bp = chr_len_bp
+    )
+
+    df_plot <- df_plot %>%
+      mutate(
+        X_axis_scaled = Position / x_scale_single$unit_bp
+      )
+
+    info(paste0(
+      "  Single-chromosome X axis enabled in ",
+      x_scale_single$unit_label,
+      " | start=",
+      round(x_scale_single$limits_scaled[1], 3),
+      " | end=",
+      round(x_scale_single$limits_scaled[2], 3)
+    ))
+  }
+
   create_male_plot <- function(data, y_max) {
-    ggplot(data) +
-      geom_point(
-        aes(x = Cumulative_position_Mbp, y = Snps_males, color = Color_index),
-        size = 0.3,
-        alpha = 0.8,
-        shape = 16
-      ) +
-      geom_smooth(
-        aes(x = Cumulative_position_Mbp, y = Snps_males, group = Contig),
-        method = "loess",
-        se = FALSE,
-        color = COL_BLUE_DARK,
-        linewidth = 1.0,
-        span = 0.05
-      ) +
-      scale_color_manual(
-        values = c("odd" = COL_BLUE_LIGHT, "even" = COL_BLUE_DARK),
-        guide = "none"
-      ) +
-      scale_x_continuous(
-        name = NULL,
-        breaks = chrom_lengths$Midpoint_Mbp,
-        labels = chr_labels,
-        expand = expansion(mult = 0.02)
-      ) +
+    p <- ggplot(data)
+
+    if (single_chr_axis) {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = X_axis_scaled, y = Snps_males),
+            fill = COL_BLUE_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = X_axis_scaled, y = Snps_males),
+          color = COL_BLUE_DARK,
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = X_axis_scaled, y = Snps_males),
+          method = "loess",
+          se = FALSE,
+          color = COL_BLUE_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_x_continuous(
+          name = NULL,
+          breaks = x_scale_single$breaks_scaled,
+          labels = x_scale_single$labels,
+          limits = x_scale_single$limits_scaled,
+          expand = c(0, 0)
+        )
+    } else {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = Cumulative_position_Mbp, y = Snps_males),
+            fill = COL_BLUE_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = Cumulative_position_Mbp, y = Snps_males, color = Color_index),
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = Cumulative_position_Mbp, y = Snps_males, group = Contig),
+          method = "loess",
+          se = FALSE,
+          color = COL_BLUE_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_color_manual(
+          values = c("odd" = COL_BLUE_LIGHT, "even" = COL_BLUE_DARK),
+          guide = "none"
+        ) +
+        scale_x_continuous(
+          name = NULL,
+          breaks = chrom_lengths$Midpoint_Mbp,
+          labels = chr_labels,
+          expand = expansion(mult = 0.02)
+        )
+    }
+
+    p +
       scale_y_continuous(
         name = "Male SNPs (per window)",
         limits = c(0, y_max),
@@ -298,7 +456,8 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
         panel.grid.major.y = element_line(color = "gray80", linewidth = 0.3),
         panel.grid.minor.y = element_blank(),
         axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
+        axis.text.x = if (single_chr_axis) element_text(size = 8, color = "black") else element_blank(),
+        axis.ticks.x = if (single_chr_axis) element_line(color = "black", linewidth = 0.3) else element_blank(),
         axis.title.y = element_text(size = 11, color = "black", face = "bold"),
         axis.text.y = element_text(size = 9, color = "black"),
         plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
@@ -307,31 +466,81 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
   }
 
   create_female_plot <- function(data, y_max) {
-    ggplot(data) +
-      geom_point(
-        aes(x = Cumulative_position_Mbp, y = Snps_females, color = Color_index),
-        size = 0.3,
-        alpha = 0.8,
-        shape = 16
-      ) +
-      geom_smooth(
-        aes(x = Cumulative_position_Mbp, y = Snps_females, group = Contig),
-        method = "loess",
-        se = FALSE,
-        color = COL_PINK_DARK,
-        linewidth = 1.0,
-        span = 0.05
-      ) +
-      scale_color_manual(
-        values = c("odd" = COL_PINK_LIGHT, "even" = COL_PINK_DARK),
-        guide = "none"
-      ) +
-      scale_x_continuous(
-        name = NULL,
-        breaks = chrom_lengths$Midpoint_Mbp,
-        labels = chr_labels,
-        expand = expansion(mult = 0.02)
-      ) +
+    p <- ggplot(data)
+
+    if (single_chr_axis) {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = X_axis_scaled, y = Snps_females),
+            fill = COL_PINK_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = X_axis_scaled, y = Snps_females),
+          color = COL_PINK_DARK,
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = X_axis_scaled, y = Snps_females),
+          method = "loess",
+          se = FALSE,
+          color = COL_PINK_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_x_continuous(
+          name = NULL,
+          breaks = x_scale_single$breaks_scaled,
+          labels = x_scale_single$labels,
+          limits = x_scale_single$limits_scaled,
+          expand = c(0, 0)
+        )
+    } else {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = Cumulative_position_Mbp, y = Snps_females),
+            fill = COL_PINK_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = Cumulative_position_Mbp, y = Snps_females, color = Color_index),
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = Cumulative_position_Mbp, y = Snps_females, group = Contig),
+          method = "loess",
+          se = FALSE,
+          color = COL_PINK_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_color_manual(
+          values = c("odd" = COL_PINK_LIGHT, "even" = COL_PINK_DARK),
+          guide = "none"
+        ) +
+        scale_x_continuous(
+          name = NULL,
+          breaks = chrom_lengths$Midpoint_Mbp,
+          labels = chr_labels,
+          expand = expansion(mult = 0.02)
+        )
+    }
+
+    p +
       scale_y_continuous(
         name = "Female SNPs (per window)",
         limits = c(0, y_max),
@@ -352,7 +561,8 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
         panel.grid.major.y = element_line(color = "gray80", linewidth = 0.3),
         panel.grid.minor.y = element_blank(),
         axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
+        axis.text.x = if (single_chr_axis) element_text(size = 8, color = "black") else element_blank(),
+        axis.ticks.x = if (single_chr_axis) element_line(color = "black", linewidth = 0.3) else element_blank(),
         axis.title.y = element_text(size = 11, color = "black", face = "bold"),
         axis.text.y = element_text(size = 9, color = "black"),
         plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
@@ -361,36 +571,86 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
   }
 
   create_fst_plot <- function(data, y_max) {
-    ggplot(data) +
-      geom_point(
-        aes(x = Cumulative_position_Mbp, y = Fst, color = Color_index),
-        size = 0.3,
-        alpha = 0.8,
-        shape = 16
-      ) +
-      geom_smooth(
-        aes(x = Cumulative_position_Mbp, y = Fst, group = Contig),
-        method = "loess",
-        se = FALSE,
-        color = COL_GREEN_DARK,
-        linewidth = 1.0,
-        span = 0.05
-      ) +
+    p <- ggplot(data)
+
+    if (single_chr_axis) {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = X_axis_scaled, y = Fst),
+            fill = COL_GREEN_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = X_axis_scaled, y = Fst),
+          color = COL_GREEN_DARK,
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = X_axis_scaled, y = Fst),
+          method = "loess",
+          se = FALSE,
+          color = COL_GREEN_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_x_continuous(
+          name = NULL,
+          breaks = x_scale_single$breaks_scaled,
+          labels = x_scale_single$labels,
+          limits = x_scale_single$limits_scaled,
+          expand = c(0, 0)
+        )
+    } else {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = Cumulative_position_Mbp, y = Fst),
+            fill = COL_GREEN_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = Cumulative_position_Mbp, y = Fst, color = Color_index),
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = Cumulative_position_Mbp, y = Fst, group = Contig),
+          method = "loess",
+          se = FALSE,
+          color = COL_GREEN_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_color_manual(
+          values = c("odd" = COL_GREEN_LIGHT, "even" = COL_GREEN_DARK),
+          guide = "none"
+        ) +
+        scale_x_continuous(
+          name = NULL,
+          breaks = chrom_lengths$Midpoint_Mbp,
+          labels = chr_labels,
+          expand = expansion(mult = 0.02)
+        )
+    }
+
+    p +
       geom_hline(
         yintercept = 0.25,
         linetype = "dashed",
         color = "gray30",
         alpha = 0.8
-      ) +
-      scale_color_manual(
-        values = c("odd" = COL_GREEN_LIGHT, "even" = COL_GREEN_DARK),
-        guide = "none"
-      ) +
-      scale_x_continuous(
-        name = NULL,
-        breaks = chrom_lengths$Midpoint_Mbp,
-        labels = chr_labels,
-        expand = expansion(mult = 0.02)
       ) +
       scale_y_continuous(
         name = "Fst",
@@ -412,7 +672,8 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
         panel.grid.major.y = element_line(color = "gray80", linewidth = 0.3),
         panel.grid.minor.y = element_blank(),
         axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
+        axis.text.x = if (single_chr_axis) element_text(size = 8, color = "black") else element_blank(),
+        axis.ticks.x = if (single_chr_axis) element_line(color = "black", linewidth = 0.3) else element_blank(),
         axis.title.y = element_text(size = 11, color = "black", face = "bold"),
         axis.text.y = element_text(size = 9, color = "black"),
         plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
@@ -421,36 +682,86 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
   }
 
   create_depth_ratio_plot <- function(data, y_max) {
-    ggplot(data) +
-      geom_point(
-        aes(x = Cumulative_position_Mbp, y = Depth_ratio_plot, color = Color_index),
-        size = 0.3,
-        alpha = 0.8,
-        shape = 16
-      ) +
-      geom_smooth(
-        aes(x = Cumulative_position_Mbp, y = Depth_ratio_plot, group = Contig),
-        method = "loess",
-        se = FALSE,
-        color = COL_PURPLE_DARK,
-        linewidth = 1.0,
-        span = 0.05
-      ) +
+    p <- ggplot(data)
+
+    if (single_chr_axis) {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = X_axis_scaled, y = Depth_ratio_plot),
+            fill = COL_PURPLE_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = X_axis_scaled, y = Depth_ratio_plot),
+          color = COL_PURPLE_DARK,
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = X_axis_scaled, y = Depth_ratio_plot),
+          method = "loess",
+          se = FALSE,
+          color = COL_PURPLE_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_x_continuous(
+          name = paste0("Position (", x_scale_single$unit_label, ")"),
+          breaks = x_scale_single$breaks_scaled,
+          labels = x_scale_single$labels,
+          limits = x_scale_single$limits_scaled,
+          expand = c(0, 0)
+        )
+    } else {
+      if (fill_under_points) {
+        p <- p +
+          geom_area(
+            aes(x = Cumulative_position_Mbp, y = Depth_ratio_plot),
+            fill = COL_PURPLE_LIGHT,
+            alpha = 0.35,
+            linewidth = 0
+          )
+      }
+
+      p <- p +
+        geom_point(
+          aes(x = Cumulative_position_Mbp, y = Depth_ratio_plot, color = Color_index),
+          size = 0.3,
+          alpha = 0.8,
+          shape = 16
+        ) +
+        geom_smooth(
+          aes(x = Cumulative_position_Mbp, y = Depth_ratio_plot, group = Contig),
+          method = "loess",
+          se = FALSE,
+          color = COL_PURPLE_DARK,
+          linewidth = 1.0,
+          span = 0.05
+        ) +
+        scale_color_manual(
+          values = c("odd" = COL_PURPLE_LIGHT, "even" = COL_PURPLE_DARK),
+          guide = "none"
+        ) +
+        scale_x_continuous(
+          name = "Chromosome",
+          breaks = chrom_lengths$Midpoint_Mbp,
+          labels = chr_labels,
+          expand = expansion(mult = 0.02)
+        )
+    }
+
+    p +
       geom_hline(
         yintercept = 1,
         linetype = "dashed",
         color = "gray30",
         alpha = 0.8
-      ) +
-      scale_color_manual(
-        values = c("odd" = COL_PURPLE_LIGHT, "even" = COL_PURPLE_DARK),
-        guide = "none"
-      ) +
-      scale_x_continuous(
-        name = "Chromosome",
-        breaks = chrom_lengths$Midpoint_Mbp,
-        labels = chr_labels,
-        expand = expansion(mult = 0.02)
       ) +
       scale_y_continuous(
         name = "Depth ratio",
@@ -472,7 +783,8 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
         panel.grid.major.y = element_line(color = "gray80", linewidth = 0.3),
         panel.grid.minor.y = element_blank(),
         axis.title.x = element_text(size = 12, color = "black", face = "bold"),
-        axis.text.x = element_text(size = 9, angle = 45, hjust = 1, color = "black"),
+        axis.text.x = element_text(size = 9, angle = 0, hjust = 0.5, color = "black"),
+        axis.ticks.x = element_line(color = "black", linewidth = 0.3),
         axis.title.y = element_text(size = 11, color = "black", face = "bold"),
         axis.text.y = element_text(size = 9, color = "black"),
         plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
@@ -494,6 +806,10 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
     subtitle_text <- paste(subtitle_text, "|", subtitle_extra)
   }
 
+  if (fill_under_points) {
+    subtitle_text <- paste(subtitle_text, "|", "Mode: --p enabled")
+  }
+
   combined_plot <- p_male / p_female / p_fst / p_depth +
     plot_layout(heights = c(1, 1, 1.2, 1.1)) +
     plot_annotation(
@@ -506,6 +822,7 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
     )
 
   out_png <- paste0(prefix, "_manhattan_FST_SNPf_SNPm_pastelAlt.png")
+  out_pdf <- paste0(prefix, "_manhattan_FST_SNPf_SNPm_pastelAlt.pdf")
 
   ggsave(
     out_png,
@@ -517,7 +834,17 @@ build_manhattan_plot <- function(df_filtered, keep_contigs, shared_snps_max, fst
     bg = "white"
   )
 
-  info(paste0("Wrote Manhattan plot: ", out_png))
+  ggsave(
+    out_pdf,
+    combined_plot,
+    width = 16,
+    height = 17,
+    device = cairo_pdf,
+    bg = "white"
+  )
+
+  info(paste0("Wrote Manhattan plot PNG: ", out_png))
+  info(paste0("Wrote Manhattan plot PDF: ", out_pdf))
 }
 
 # -----------------------------
@@ -532,15 +859,19 @@ SELECTED_TXT <- "selected_contigs.txt"
 REQUESTED_N      <- parse_n_from_cli()
 REQUESTED_CHR    <- parse_chr_from_cli()
 REQUESTED_REGION <- parse_region_from_cli()
+REQUESTED_P      <- parse_p_from_cli()
 
 info("------------------------------------------------------------")
 info("PSASS plotting helper")
 info("Input required in this folder: psass_window.tsv")
 info("Usage examples:")
-info("  Rscript run_psass_plot_auto.R --n 25")
-info("  Rscript run_psass_plot_auto.R --chr 11")
-info("  Rscript run_psass_plot_auto.R --chr 11 --region 1:100000")
-info("  Rscript run_psass_plot_auto.R")
+info("  Rscript PSASS_plot.R --n 25")
+info("  Rscript PSASS_plot.R --chr 11")
+info("  Rscript PSASS_plot.R --chr 11 --region 1:100000")
+info("  Rscript PSASS_plot.R --p")
+info("  Rscript PSASS_plot.R --chr 11 --p")
+info("  Rscript PSASS_plot.R --chr 11 --region 1:100000 --p")
+info("  Rscript PSASS_plot.R")
 info("------------------------------------------------------------")
 
 if (!is.na(REQUESTED_N) && !is.na(REQUESTED_CHR)) {
@@ -666,10 +997,6 @@ if (!is.null(REQUESTED_REGION)) {
     "Applied region filter on ", chosen_contig,
     ": ", REQUESTED_REGION$start, "-", REQUESTED_REGION$end
   ))
-
-  # Ajusta Length para o tamanho da região, o que ajuda no layout do circos/labels
-  region_length <- REQUESTED_REGION$end - REQUESTED_REGION$start + 1
-  df_filt$Length <- region_length
 }
 
 df_filt$Fst_circos <- pmax(pmin(df_filt$Fst, 1), 0)
@@ -726,7 +1053,10 @@ build_manhattan_plot(
   fst_raw_max = fst_raw_max,
   fst_gt1_n = fst_gt1_n,
   prefix = prefix_base,
-  subtitle_extra = subtitle_extra
+  subtitle_extra = subtitle_extra,
+  single_chr_axis = (!is.na(REQUESTED_CHR)),
+  region_info = REQUESTED_REGION,
+  fill_under_points = REQUESTED_P
 )
 
 tracks_circos <- list(
@@ -764,6 +1094,7 @@ info("Generating Circos plot with sgtr ...")
 
 circos_tmp_png <- paste0(prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.tmp.png")
 circos_out_png <- paste0(prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.png")
+circos_out_pdf <- paste0(prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.pdf")
 
 plot_circos(
   FILTERED_WIN,
@@ -773,12 +1104,19 @@ plot_circos(
 )
 
 add_circos_center_legend_png(circos_tmp_png, circos_out_png)
+png_to_pdf(circos_out_png, circos_out_pdf)
 
 if (file.exists(circos_tmp_png)) {
   unlink(circos_tmp_png)
 }
 
 info("DONE.")
+info("Correct usage example:")
+info("  Rscript PSASS_plot.R --chr 2 --region 50000:350000")
+info("  Rscript PSASS_plot.R --p")
+info("  Rscript PSASS_plot.R --chr 2 --region 50000:350000 --p")
 info("Outputs:")
 info(paste0("  - ", prefix_base, "_manhattan_FST_SNPf_SNPm_pastelAlt.png"))
+info(paste0("  - ", prefix_base, "_manhattan_FST_SNPf_SNPm_pastelAlt.pdf"))
 info(paste0("  - ", prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.png"))
+info(paste0("  - ", prefix_base, "_circos_FST_SNPf_SNPm_pastelAlt.pdf"))
