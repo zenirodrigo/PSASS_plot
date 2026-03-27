@@ -124,14 +124,56 @@ detect_prefix <- function() {
 order_contigs_obvious <- function(contig_sizes_df) {
   contigs <- contig_sizes_df$Contig
 
-  chr_num <- suppressWarnings(as.integer(sub("^Chromosome", "", contigs)))
-  if (length(contigs) > 0 && all(!is.na(chr_num))) {
-    return(contigs[order(chr_num)])
+  extract_chr_number <- function(x) {
+    m <- regexec("^(Chromosome|chromosome|Chr|chr)[_\\-]?([0-9]+)$", x)
+    reg <- regmatches(x, m)
+    out <- rep(NA_integer_, length(x))
+
+    for (i in seq_along(reg)) {
+      if (length(reg[[i]]) >= 3) {
+        out[i] <- suppressWarnings(as.integer(reg[[i]][3]))
+      }
+    }
+    out
   }
 
-  sca_num <- suppressWarnings(as.integer(sub("^(scaffold|Scaffold)[_\\-]?", "", contigs)))
-  if (length(contigs) > 0 && all(!is.na(sca_num))) {
-    return(contigs[order(sca_num)])
+  chr_num <- extract_chr_number(contigs)
+
+  if (any(!is.na(chr_num))) {
+    numeric_contigs <- contigs[!is.na(chr_num)]
+    numeric_nums    <- chr_num[!is.na(chr_num)]
+    other_contigs   <- contigs[is.na(chr_num)]
+
+    numeric_ordered <- numeric_contigs[order(numeric_nums)]
+    other_ordered   <- sort(other_contigs)
+
+    return(c(numeric_ordered, other_ordered))
+  }
+
+  extract_scf_number <- function(x) {
+    m <- regexec("^(scaffold|Scaffold)[_\\-]?([0-9]+)$", x)
+    reg <- regmatches(x, m)
+    out <- rep(NA_integer_, length(x))
+
+    for (i in seq_along(reg)) {
+      if (length(reg[[i]]) >= 3) {
+        out[i] <- suppressWarnings(as.integer(reg[[i]][3]))
+      }
+    }
+    out
+  }
+
+  sca_num <- extract_scf_number(contigs)
+
+  if (any(!is.na(sca_num))) {
+    numeric_contigs <- contigs[!is.na(sca_num)]
+    numeric_nums    <- sca_num[!is.na(sca_num)]
+    other_contigs   <- contigs[is.na(sca_num)]
+
+    numeric_ordered <- numeric_contigs[order(numeric_nums)]
+    other_ordered   <- sort(other_contigs)
+
+    return(c(numeric_ordered, other_ordered))
   }
 
   contig_sizes_df <- contig_sizes_df[order(contig_sizes_df$Length, decreasing = TRUE), ]
@@ -322,7 +364,7 @@ build_manhattan_plot <- function(df_filtered,
     mutate(
       Cumulative_position_Mbp = Cumulative_start_Mbp + Position_Mbp
     ) %>%
-    arrange(Contig, Position)
+    arrange(factor(Contig, levels = keep_contigs), Position)
 
   y_max_snps <- shared_snps_max * 1.05
   y_max_fst  <- min(fst_raw_max * 1.05, 1)
@@ -401,7 +443,7 @@ build_manhattan_plot <- function(df_filtered,
       if (fill_under_points) {
         p <- p +
           geom_area(
-            aes(x = Cumulative_position_Mbp, y = Snps_males),
+            aes(x = Cumulative_position_Mbp, y = Snps_males, group = 1),
             fill = COL_BLUE_LIGHT,
             alpha = 0.35,
             linewidth = 0
@@ -506,7 +548,7 @@ build_manhattan_plot <- function(df_filtered,
       if (fill_under_points) {
         p <- p +
           geom_area(
-            aes(x = Cumulative_position_Mbp, y = Snps_females),
+            aes(x = Cumulative_position_Mbp, y = Snps_females, group = 1),
             fill = COL_PINK_LIGHT,
             alpha = 0.35,
             linewidth = 0
@@ -611,7 +653,7 @@ build_manhattan_plot <- function(df_filtered,
       if (fill_under_points) {
         p <- p +
           geom_area(
-            aes(x = Cumulative_position_Mbp, y = Fst),
+            aes(x = Cumulative_position_Mbp, y = Fst, group = 1),
             fill = COL_GREEN_LIGHT,
             alpha = 0.35,
             linewidth = 0
@@ -722,7 +764,7 @@ build_manhattan_plot <- function(df_filtered,
       if (fill_under_points) {
         p <- p +
           geom_area(
-            aes(x = Cumulative_position_Mbp, y = Depth_ratio_plot),
+            aes(x = Cumulative_position_Mbp, y = Depth_ratio_plot, group = 1),
             fill = COL_PURPLE_LIGHT,
             alpha = 0.35,
             linewidth = 0
@@ -847,9 +889,7 @@ build_manhattan_plot <- function(df_filtered,
   info(paste0("Wrote Manhattan plot PDF: ", out_pdf))
 }
 
-# -----------------------------
-# Main
-# -----------------------------
+
 REQ_WINDOW   <- "psass_window.tsv"
 CLEAN_WINDOW <- "psass_window.clean.tsv"
 FILTERED_WIN <- "psass_window.filtered.tsv"
@@ -876,10 +916,6 @@ info("------------------------------------------------------------")
 
 if (!is.na(REQUESTED_N) && !is.na(REQUESTED_CHR)) {
   die("Use either --n OR --chr, not both together.")
-}
-
-if (is.null(REQUESTED_CHR) || length(REQUESTED_CHR) == 0) {
-  # nothing
 }
 
 if (!is.null(REQUESTED_REGION) && is.na(REQUESTED_CHR)) {
@@ -914,7 +950,6 @@ contig_sizes <- aggregate(Length ~ Contig, data = df, FUN = max)
 ordered_contigs <- order_contigs_obvious(contig_sizes)
 max_n <- length(ordered_contigs)
 
-selected_mode <- "all"
 region_tag <- NULL
 subtitle_extra <- NULL
 
@@ -928,7 +963,6 @@ if (!is.na(REQUESTED_CHR)) {
 
   selected_contig <- ordered_contigs[REQUESTED_CHR]
   keep_contigs <- selected_contig
-  selected_mode <- "single_chr"
 
   info(paste0(
     "Using only sequence index ", REQUESTED_CHR,
@@ -957,7 +991,6 @@ if (!is.na(REQUESTED_CHR)) {
     info(paste0("Keeping the first ", n_keep, " contigs for analysis."))
   }
   keep_contigs <- head(ordered_contigs, n_keep)
-  selected_mode <- "top_n"
   subtitle_extra <- paste0("Top contigs used: ", length(keep_contigs))
 
 } else {
@@ -1005,7 +1038,7 @@ df_filt$Depth_ratio_circos <- pmin(df_filt$Depth_ratio, 5)
 write.table(df_filt, FILTERED_WIN, sep = "\t", row.names = FALSE, quote = FALSE)
 info(paste0("Wrote filtered window file: ", FILTERED_WIN))
 
-write_chromosomes_tsv(unique(df_filt$Contig), CHR_TSV)
+write_chromosomes_tsv(keep_contigs, CHR_TSV)
 
 shared_snps_max <- max(c(df_filt$Snps_females, df_filt$Snps_males), na.rm = TRUE)
 
@@ -1048,7 +1081,7 @@ if (!is.null(region_tag)) {
 
 build_manhattan_plot(
   df_filtered = df_filt,
-  keep_contigs = unique(df_filt$Contig),
+  keep_contigs = keep_contigs,
   shared_snps_max = shared_snps_max,
   fst_raw_max = fst_raw_max,
   fst_gt1_n = fst_gt1_n,
