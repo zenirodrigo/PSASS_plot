@@ -72,7 +72,11 @@ The file must be a tab-separated table generated from PSASS window analyses. No 
 
 ## Usage
 
-This script must be executed inside the PSASS analysis output directory containing the file:
+This script must be executed inside the PSASS analysis output directory containing the file (psass_window.tsv). It automatically generates both circos and Manhattan plots:
+````
+Rscript psass_plot.R
+````
+
 Parameters:
 ```bash
 --n
@@ -80,7 +84,7 @@ Parameters:
 Plots only the first N sequences/contigs from the ordered dataset.
 
 ```bash
-Rscript run_psass_plot_auto.R --n 25
+Rscript psass_plot.R --n 25
 ```
 Example: use only the first 25 sequences for plotting.
 ```bash
@@ -88,7 +92,7 @@ Example: use only the first 25 sequences for plotting.
 ```
 Plots only the sequence/contig at index X in the ordered TSV.
 ```bash
-Rscript run_psass_plot_auto.R --chr 11
+Rscript psass_plot.R --chr 11
 ```
 Example: if --chr 11 is used, the script will plot only the 11th sequence in the dataset order.
 ```bash
@@ -97,7 +101,7 @@ Example: if --chr 11 is used, the script will plot only the 11th sequence in the
 Must be used together with --chr.
 Plots only a specific genomic region of the selected sequence.
 ```bash
-Rscript run_psass_plot_auto.R --chr 11 --region 1:100000
+Rscript psass_plot.R --chr 11 --region 1:100000
 ```
 
 Example: plot only positions 1 to 100000 from the 11th sequence.
@@ -106,7 +110,7 @@ Example: plot only positions 1 to 100000 from the 11th sequence.
 ```
 Enables filled area under the curves in the Manhattan plots.
 ```bash
-Rscript run_psass_plot_auto.R --p
+Rscript psass_plot.R --p
 ```
 Behavior summary
 No arguments → plot all sequences normally
