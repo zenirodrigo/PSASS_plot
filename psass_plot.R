@@ -889,7 +889,9 @@ build_manhattan_plot <- function(df_filtered,
   info(paste0("Wrote Manhattan plot PDF: ", out_pdf))
 }
 
-
+# -----------------------------
+# Main
+# -----------------------------
 REQ_WINDOW   <- "psass_window.tsv"
 CLEAN_WINDOW <- "psass_window.clean.tsv"
 FILTERED_WIN <- "psass_window.filtered.tsv"
