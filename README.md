@@ -240,7 +240,6 @@ If you use this tool, please cite:
 
 * psass_plot: dos Santos, R.Z.R. and Sassi, F.M.C. (2026) https://github.com/zenirodrigo/PSASS_plot
 * PSASS: https://github.com/SexGenomicsToolkit/PSASS
-* 
 
 ---
 
