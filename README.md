@@ -5,8 +5,8 @@
 ![Output](https://img.shields.io/badge/output-PNG%20%7C%20PDF-success)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Visualization toolkit for **PSASS** results
-👉 https://github.com/SexGenomicsToolkit/PSASS
+Visualization toolkit for **PSASS** results:
+https://github.com/SexGenomicsToolkit/PSASS
 
 ---
 
