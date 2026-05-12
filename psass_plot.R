@@ -320,9 +320,7 @@ png_to_pdf <- function(input_png, output_pdf) {
   info(paste0("Wrote PDF version: ", output_pdf))
 }
 
-# -----------------------------
-# Manhattan helpers
-# -----------------------------
+
 build_manhattan_plot <- function(df_filtered,
                                  keep_contigs,
                                  shared_snps_max,
@@ -336,9 +334,10 @@ build_manhattan_plot <- function(df_filtered,
 
   df_plot <- df_filtered %>%
     mutate(
-      Position_Mbp = Position / 1e6,
-      Depth_ratio_plot = pmin(Depth_ratio, 5)
-    )
+    Position_Mbp = Position / 1e6,
+    Fst_plot = pmax(pmin(Fst, 1), 0),
+    Depth_ratio_plot = pmin(Depth_ratio, 5)
+  )
 
   chrom_lengths <- df_plot %>%
     group_by(Chromosome = Contig) %>%
@@ -619,7 +618,7 @@ build_manhattan_plot <- function(df_filtered,
       if (fill_under_points) {
         p <- p +
           geom_area(
-            aes(x = X_axis_scaled, y = Fst),
+            aes(x = X_axis_scaled, y = Fst_plot),
             fill = COL_GREEN_LIGHT,
             alpha = 0.35,
             linewidth = 0
@@ -628,14 +627,22 @@ build_manhattan_plot <- function(df_filtered,
 
       p <- p +
         geom_point(
-          aes(x = X_axis_scaled, y = Fst),
+          aes(x = X_axis_scaled, y = Fst_plot),
           color = COL_GREEN_DARK,
           size = 0.3,
           alpha = 0.8,
           shape = 16
         ) +
+        geom_point(
+          data = data %>% filter(Fst > 1),
+          aes(x = X_axis_scaled, y = 1),
+          color = "red",
+          size = 1.8,
+          alpha = 1,
+          shape = 17
+        ) +
         geom_smooth(
-          aes(x = X_axis_scaled, y = Fst),
+          aes(x = X_axis_scaled, y = Fst_plot),
           method = "loess",
           se = FALSE,
           color = COL_GREEN_DARK,
@@ -653,7 +660,7 @@ build_manhattan_plot <- function(df_filtered,
       if (fill_under_points) {
         p <- p +
           geom_area(
-            aes(x = Cumulative_position_Mbp, y = Fst, group = 1),
+            aes(x = Cumulative_position_Mbp, y = Fst_plot, group = 1),
             fill = COL_GREEN_LIGHT,
             alpha = 0.35,
             linewidth = 0
@@ -662,13 +669,21 @@ build_manhattan_plot <- function(df_filtered,
 
       p <- p +
         geom_point(
-          aes(x = Cumulative_position_Mbp, y = Fst, color = Color_index),
+          aes(x = Cumulative_position_Mbp, y = Fst_plot, color = Color_index),
           size = 0.3,
           alpha = 0.8,
           shape = 16
         ) +
+        geom_point(
+          data = data %>% filter(Fst > 1),
+          aes(x = Cumulative_position_Mbp, y = 1),
+          color = "red",
+          size = 1.8,
+          alpha = 1,
+          shape = 17
+        ) +
         geom_smooth(
-          aes(x = Cumulative_position_Mbp, y = Fst, group = Contig),
+          aes(x = Cumulative_position_Mbp, y = Fst_plot, group = Contig),
           method = "loess",
           se = FALSE,
           color = COL_GREEN_DARK,
